@@ -1,0 +1,877 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Jun 16 18:30:15 2021
+
+@author: shinan
+"""
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
+
+# 导入tushare库
+import tushare as ts
+# 设置token，注册后，系统分配
+ts.set_token('238d647a596415e41dfddeacb4fc5fe13b3b58075efee0e1534fcbc8')
+# 初始化pro接口
+pro = ts.pro_api()
+
+# 绘图设置
+plt.rcParams['font.sans-serif'] = ['Simhei']
+plt.rcParams['axes.unicode_minus'] = False
+
+
+class stockDataDown():
+    
+    def __init__(self, 
+                 name, 
+                 stock_start_date, 
+                 stock_end_date,
+                 financial_start_date, 
+                 financial_end_date):
+        
+        ##### 下载股票列表
+        self.name=name
+        self.stock_basic = pro.stock_basic(exchange='',
+                                           list_status='L',
+                                           fields='ts_code,symbol,name,area,industry,list_date,is_hs,market'
+                                           )
+        self.code = self.stock_basic.ts_code[self.stock_basic['name'].str.find(self.name)>=0].tolist()[0]
+        
+        ##### 下载当天所有个股每日指标数据
+        daily = pro.daily(trade_date=stock_end_date)
+        daily_basic = pro.daily_basic(trade_date=stock_end_date)
+        
+        daily['flag_daily'] = 1
+        daily_basic['flag_daily_basic'] = 1
+        
+        stock_oneday = daily.merge(daily_basic.drop('close', axis=1), on=['ts_code', 'trade_date'])
+        stock_oneday = self.stock_basic[['ts_code', 'name', 'industry']].merge(stock_oneday, on='ts_code', how='right')
+        stock_oneday = stock_oneday[stock_oneday.name.notnull()]
+        stock_oneday = stock_oneday.reset_index(drop=True)
+        
+        self.stock_oneday = stock_oneday
+        
+        ##### 下载个股数据
+        # 下载数据
+        daily = pro.daily(ts_code=self.code, start_date=stock_start_date, end_date=stock_end_date)
+        daily_basic = pro.daily_basic(ts_code=self.code, start_date=stock_start_date, end_date=stock_end_date)        
+        moneyflow = pro.moneyflow(ts_code=self.code, start_date=stock_start_date, end_date=stock_end_date)        
+        hk_hold = pro.hk_hold(ts_code=self.code, start_date=stock_start_date, end_date=stock_end_date)        
+        margin_detail = pro.margin_detail(ts_code=self.code, start_date=stock_start_date, end_date=stock_end_date)
+            
+        daily['flag_daily'] = 1
+        daily_basic['flag_daily_basic'] = 1
+        moneyflow['flag_moneyflow'] = 1
+        hk_hold['flag_hold'] = 1
+        margin_detail['flag_margin'] = 1
+            
+        # 合并数据
+        stock_analysis = daily.merge(daily_basic.drop(['ts_code', 'close'], axis=1), on=['trade_date'], how='outer')
+        stock_analysis = stock_analysis.merge(moneyflow.drop('ts_code', axis=1), on=['trade_date'], how='outer')
+        stock_analysis = stock_analysis.merge(hk_hold[['trade_date', 'ratio', 'flag_hold']], on=['trade_date'], how='left')
+        stock_analysis = stock_analysis.merge(margin_detail.drop('ts_code', axis=1), on=['trade_date'], how='left')
+        stock_analysis = self.stock_basic[['ts_code', 'name', 'industry']].merge(stock_analysis, on='ts_code', how='right')
+        
+        self.stock_analysis = stock_analysis
+        
+        ##### 下载股东人数数据
+        stock_holdernumber = pro.stk_holdernumber(ts_code=self.code, 
+                                                start_date='19900101', 
+                                                end_date=stock_end_date)
+        
+        stock_holdernumber = stock_holdernumber.drop_duplicates('end_date')
+        
+        close_list = []
+        for i in stock_holdernumber.end_date.tolist():
+            
+            start = pd.Timestamp(i) - pd.DateOffset(days=15)
+            start = str(start)[0:10]
+            start = start.replace('-', '')
+            end = pd.Timestamp(i) + pd.DateOffset(days=15)
+            end = str(end)[0:10]
+            end = end.replace('-', '')
+    
+            temp = pro.daily(ts_code=self.code, start_date=start, end_date=end)
+            Dict = {}
+            Dict['trade_date'] = [i]
+            Dict['close'] = temp.close.mean()
+            close = pd.DataFrame(Dict)
+            
+            close_list.append(close)
+              
+        close = pd.concat(close_list, axis=0)
+        
+        stock_holdernumber = stock_holdernumber.merge(close, left_on='end_date', right_on='trade_date', how='left')
+            
+        self.stock_holdernumber = stock_holdernumber  
+        
+        ##### 下载财报数据
+        def dropDup(df):
+            if len(df) == 1:
+                df0 = df
+            elif len(df) > 1:
+                df0 = df[df['update_flag']=='1']
+            return df0
+        
+        # 利润表
+        income = pro.income_vip(ts_code=self.code, start_date=financial_start_date, end_date=financial_end_date)
+        income = income.groupby(['end_date']).apply(dropDup)
+        income = income.reset_index(drop=True)
+        income = income.drop_duplicates('end_date')
+        income = income.drop('update_flag', axis=1)
+        income['flag_income'] = 1
+        
+        # 资产负债表
+        balancesheet = pro.balancesheet_vip(ts_code=self.code, start_date=financial_start_date, end_date=financial_end_date)
+        balancesheet = balancesheet.groupby(['end_date']).apply(dropDup)
+        balancesheet = balancesheet.reset_index(drop=True)
+        balancesheet = balancesheet.drop_duplicates('end_date')
+        balancesheet = balancesheet.drop('update_flag', axis=1)
+        balancesheet['flag_balancesheet'] = 1
+        balancesheet = balancesheet.rename({'ts_code': 'ts_code1',
+                                            'ann_date': 'ann_date1',
+                                            'f_ann_date': 'f_ann_date1',                                            
+                                            'report_type': 'report_type1',
+                                            'comp_type': 'comp_type1'}, axis=1)
+        
+        # 现金流量表
+        cashflow = pro.cashflow_vip(ts_code=self.code, start_date=financial_start_date, end_date=financial_end_date)
+        cashflow = cashflow.groupby(['end_date']).apply(dropDup)
+        cashflow = cashflow.reset_index(drop=True)
+        cashflow = cashflow.drop_duplicates('end_date')
+        cashflow = cashflow.drop('update_flag', axis=1)
+        cashflow['flag_cashflow'] = 1
+        cashflow = cashflow.rename({'ts_code': 'ts_code2',
+                                    'ann_date': 'ann_date2',
+                                    'f_ann_date': 'f_ann_date2',
+                                    'report_type': 'report_type2',
+                                    'comp_type': 'comp_type2'}, axis=1)
+        
+        stock_financial_report = income.merge(balancesheet, on='end_date', how='outer')
+        stock_financial_report.loc[stock_financial_report.ts_code.isnull(), 'ts_code'] = stock_financial_report.loc[stock_financial_report.ts_code.isnull(), 'ts_code1']
+        stock_financial_report.loc[stock_financial_report.ann_date.isnull(), 'ann_date'] = stock_financial_report.loc[stock_financial_report.ann_date.isnull(), 'ann_date1']
+        stock_financial_report.loc[stock_financial_report.f_ann_date.isnull(), 'f_ann_date'] = stock_financial_report.loc[stock_financial_report.f_ann_date.isnull(), 'f_ann_date1']
+        stock_financial_report.loc[stock_financial_report.report_type.isnull(), 'report_type'] = stock_financial_report.loc[stock_financial_report.report_type.isnull(), 'report_type1']
+        stock_financial_report.loc[stock_financial_report.comp_type.isnull(), 'comp_type'] = stock_financial_report.loc[stock_financial_report.comp_type.isnull(), 'comp_type1']
+        
+        stock_financial_report = stock_financial_report.merge(cashflow, on='end_date', how='outer')
+        stock_financial_report.loc[stock_financial_report.ts_code.isnull(), 'ts_code'] = stock_financial_report.loc[stock_financial_report.ts_code.isnull(), 'ts_code2']
+        stock_financial_report.loc[stock_financial_report.ann_date.isnull(), 'ann_date'] = stock_financial_report.loc[stock_financial_report.ann_date.isnull(), 'ann_date2']
+        stock_financial_report.loc[stock_financial_report.f_ann_date.isnull(), 'f_ann_date'] = stock_financial_report.loc[stock_financial_report.f_ann_date.isnull(), 'f_ann_date2']
+        stock_financial_report.loc[stock_financial_report.report_type.isnull(), 'report_type'] = stock_financial_report.loc[stock_financial_report.report_type.isnull(), 'report_type2']
+        stock_financial_report.loc[stock_financial_report.comp_type.isnull(), 'comp_type'] = stock_financial_report.loc[stock_financial_report.comp_type.isnull(), 'comp_type2']
+        
+        stock_financial_report = stock_financial_report.applymap(lambda x: np.nan if x is None else x)
+        
+        self.stock_financial_report = stock_financial_report
+        
+class stockAnalysize():       
+    def __init__(self, 
+                 path, 
+                 reportdate,
+                 name, 
+                 stock_analysis,
+                 stock_oneday,
+                 stock_holdernumber,
+                 stock_financial_report,
+                 analysis_start_date, 
+                 analysis_end_date,
+                 financial_analysis_start_date,
+                 ):
+        
+        with PdfPages(path + reportdate + '-' + name + '.pdf') as pdf:
+            
+            ############### 个股数据衍生
+            stock_analysis_all = stock_analysis.copy()
+            stock_analysis_all['net_lead'] =  stock_analysis_all['buy_lg_amount'] - stock_analysis_all['sell_lg_amount'] + stock_analysis_all['buy_elg_amount'] - stock_analysis_all['sell_elg_amount']
+            stock_analysis_all['net_lead_amount_r'] =  stock_analysis_all['net_lead']/(stock_analysis_all['amount']/10)*100
+            
+            stock_analysis_all['net_rzmre'] = stock_analysis_all['rzmre'] - stock_analysis_all['rzche']
+            stock_analysis_all['net_rqmcl'] = stock_analysis_all['rqmcl'] - stock_analysis_all['rqchl']
+            stock_analysis_all['rzrqye_circ_mv_r'] = 100*(stock_analysis_all['rzrqye']/1e4) / stock_analysis_all['circ_mv']
+            
+            # 增长值函数
+            def calcD(df, columns):
+                for c in columns:
+                    df[c+'_D'] = df[c] - df.shift(-1)[c]
+                return df
+            
+            temp = stock_analysis_all[stock_analysis_all.flag_hold==1].copy()
+            temp = temp.sort_values(['trade_date'], ascending=[False])
+            temp = calcD(temp, ['ratio'])
+            temp['net_north'] = temp['ratio_D']/1e2*temp['circ_mv']
+            
+            stock_analysis_all = stock_analysis_all.merge(temp[['trade_date', 'ratio_D', 'net_north']], on=['trade_date'], how='left')
+            self.stock_analysis_all = stock_analysis_all
+            
+            ############### 同行业比较 
+            ## 提取同行业数据
+            industry_stock = stock_analysis_all['industry'].values[0]
+            name_stock = stock_analysis_all['name'].values[0]
+            stock_oneday_industry = stock_oneday[stock_oneday.industry==industry_stock]
+            self.stock_oneday_industry = stock_oneday_industry
+            
+            ## 市盈率比较
+            pe_ttm_stock = stock_analysis_all.loc[stock_analysis_all.trade_date==analysis_end_date, 'pe_ttm'].values[0]
+            if pe_ttm_stock is None:
+                pe_ttm_stock = np.nan
+            pe_ttm_industry = stock_oneday_industry['pe_ttm']
+            pe_ttm_industry = pe_ttm_industry.dropna()
+            
+            pe_ttm_industry = pe_ttm_industry[(pe_ttm_industry<np.percentile(pe_ttm_industry, 95)) & (pe_ttm_industry>np.percentile(pe_ttm_industry, 5))]
+                       
+            pe_ttm_ave = pe_ttm_industry.mean()
+            pe_ttm_min = pe_ttm_industry.min()
+            pe_ttm_max = pe_ttm_industry.max()
+            
+
+            labels = ['5%分位', '95%分位', '平均值', name_stock]
+            pes = [pe_ttm_min, pe_ttm_max, pe_ttm_ave, pe_ttm_stock]
+            colors = ['r', 'r', 'r', 'grey']
+            
+            plt.figure(figsize=(15, 8))
+            plt.bar(labels, pes, color=colors)           
+            plt.axhline(pe_ttm_stock, color='k', linestyle='--', linewidth=1.5)
+            plt.xticks(fontsize=20) 
+            plt.yticks(fontsize=20)
+            plt.grid()
+            plt.title(name + ':(%s)同行业(%s)滚动市盈率比较'%(analysis_end_date, industry_stock), fontsize=25)
+            
+            pdf.savefig()
+            plt.close() 
+            
+            ## 涨幅比较
+            df = stock_oneday_industry.copy()
+            df = df.sort_values('pct_chg', ascending=False)
+            df = df.reset_index(drop=True)
+            
+            df1 = df.loc[df.index<30, :]
+            
+            code = stock_analysis_all['ts_code'].values[0]
+            df2 = df.loc[df.ts_code==code, :]
+            
+            df = df1.append(df2)
+            df = df.drop_duplicates('ts_code')
+            df = df.sort_values('pct_chg', ascending=False)
+            df = df.reset_index(drop=True)
+              
+            # 绘图
+            def calcColor(df, c):
+                y = (df[c]>0).map({True:'r', False:'g'})
+                y[df['name']==name_stock] = 'grey'
+                return y
+            
+            plt.figure(figsize=(15, len(df)*0.8))
+            plt.barh(df.name, df.pct_chg, color=calcColor(df, 'pct_chg'))           
+            plt.xticks(fontsize=20) 
+            plt.xlabel('涨幅(%)', fontsize=20)
+            plt.yticks(fontsize=20)
+            plt.grid()
+            
+            ax = plt.gca()
+            ax.twiny()
+            plt.scatter(df.pe_ttm, df.name, color='k', marker='^', s=50)
+            plt.xticks(fontsize=20) 
+            plt.xlabel('市盈率', fontsize=20)
+            plt.title(name + ':(%s)同行业(%s)股价涨幅/市盈率'%(analysis_end_date, industry_stock), fontsize=25, y=1.07)
+            
+            pdf.savefig()
+            plt.close() 
+            
+            ############### 区间趋势/收盘价分析
+            df = stock_analysis_all[(stock_analysis_all.trade_date>=analysis_start_date) & (stock_analysis_all.trade_date<=analysis_end_date)]
+            df = df.sort_values('trade_date')
+            df = df.reset_index(drop=True)
+            
+            Divided = [1,
+                       1,
+                       1,
+                       1e5, 
+                       1e4, 
+                       1e4, 
+                       1,
+                       1, 
+                       1e4, 
+                       1e8, 
+                       1e8, 
+                       1e8, 
+                       1e8, 
+                       1e4, 
+                       1e4, 
+                       1e8]
+            
+            Vars1 = ['pe_ttm',
+                     'turnover_rate_f',
+                     'volume_ratio',
+                     'amount', 
+                     'net_mf_amount', 
+                     'net_lead', 
+                     'net_lead_amount_r',
+                     'ratio',
+                     'net_north', 
+                     'rzrqye', 
+                     'rzye', 
+                     'net_rzmre', 
+                     'rqye', 
+                     'rqyl', 
+                     'net_rqmcl', 
+                     'rzrqye']
+            
+            Labels1 = ['pe_ttm',
+                       '%',
+                       '量比',
+                       '亿元', 
+                       '亿元', 
+                       '亿元', 
+                       '%',
+                       '%',
+                       '亿元', 
+                       '亿元', 
+                       '亿元', 
+                       '亿元', 
+                       '亿元', 
+                       '万股', 
+                       '万股', 
+                       '亿元']
+            
+            Vars2 = ['close']*15 + ['rzrqye_circ_mv_r'] 
+
+            Labels2 = ['']*15 + ['%']
+            
+            Titles = ['滚动市盈率/收盘价',
+                      '换手率/收盘价',
+                      '量比/收盘价',
+                      '成交额/收盘价', 
+                      '净流入额/收盘价', 
+                      '主力净流入额/收盘价', 
+                      '主力净流入成交额比/收盘价',
+                      '北向资金持股比例/收盘价', 
+                      '北向资金净流入额/收盘价', 
+                      '融资融券余额/收盘价', 
+                      '融资余额/收盘价', 
+                      '融资净买入额/收盘价', 
+                      '融券余额/收盘价', 
+                      '融券余量/收盘价', 
+                      '融券净卖出量/收盘价', 
+                      '融资融券余额/流通市值比']
+            
+            for i in range(len(Vars1)):
+                if len(df)<=20:
+                    xticks = df.trade_date.tolist()
+                else:
+                    xticks = df.trade_date[[int(i) for i in np.linspace(0,len(df)-1, 20)]].tolist()
+            
+                plt.figure(figsize=(15, 8))
+                
+                ax = plt.subplot(111)
+                ax.bar(df.trade_date, df[Vars1[i]]/Divided[i], color=(df[Vars1[i]]>0).map({True:'r', False:'g'}))
+                plt.xticks(xticks, rotation=-90, fontsize=15) 
+                plt.grid()  
+                plt.yticks(fontsize=15) 
+                plt.ylabel(Labels1[i], fontsize=15)
+
+                axt = ax.twinx()
+                axt.plot(df.trade_date.values, df[Vars2[i]].values, 'k')
+                plt.xticks(xticks, rotation=-90, fontsize=15) 
+                plt.yticks(fontsize=15) 
+                plt.ylabel(Labels2[i], fontsize=15)
+                
+                plt.title(name + ':' + Titles[i], fontsize=25)
+            
+                pdf.savefig()
+                plt.close()
+                
+           ############### 近期累计分析
+            Devided = [1e4, 1e4, 1e8, 1e4]
+            Vars = ['net_lead', 'net_north', 'net_rzmre', 'net_rqmcl']
+            Labels = ['亿元', '亿元', '亿元', '万股']
+            Titles = ['主力净流入额', '北向资金净流入额', '融资净买入额', '融券净卖出量']
+            
+            df0 = stock_analysis_all[(stock_analysis_all.trade_date>=analysis_start_date) & (stock_analysis_all.trade_date<=analysis_end_date)]
+            df0 = df0.sort_values('trade_date', ascending=False)
+            
+            for i, var in enumerate(Vars):
+                
+                if var=='net_lead':
+                    df = df0.copy()
+                elif var=='net_north':
+                    df = df0[df0.flag_hold==1]
+                elif var in ['net_rzmre', 'net_rqmcl']:
+                    df = df0[df0.flag_margin==1]
+                
+                currdate = df.trade_date.max()
+                
+                df = df[var].cumsum()
+                df = pd.DataFrame(df)
+                df = df.reset_index(drop=True)
+                df['currdays'] = range(1, len(df)+1)
+                df = df[df['currdays']<=30]
+                df = df.sort_values('currdays', ascending=False)
+                df['currdays'] = df['currdays'].map(lambda x: str(x))
+                
+                plt.figure(figsize=(15, 6))
+                plt.bar(df['currdays'], df[var]/Devided[i], color=(df[var]>0).map({True:'r', False:'g'}))
+                plt.xticks(fontsize=15) 
+                plt.yticks(fontsize=15) 
+                plt.ylabel(Labels[i], fontsize=15)
+                plt.title(name + ':近日(最近日期:%s)累计'%(currdate) + Titles[i], fontsize=25)
+                plt.grid()
+                
+                pdf.savefig()
+                plt.close() 
+                
+            ############### 股东人数
+            df = stock_holdernumber.sort_values('end_date')
+            df = df.reset_index(drop=True)
+            if len(df) <= 20:
+                xticks = df.end_date.tolist()
+            else:
+                xticks = df.end_date[[int(i) for i in np.linspace(0,len(df)-1, 20)]].tolist()
+
+            plt.figure(figsize=(15, 8))
+
+            plt.bar(df.end_date, df.holder_num/1e4, color='r')
+            plt.xticks(xticks, rotation=-90, fontsize=15)
+            plt.yticks(fontsize=15) 
+            plt.ylabel('万人', fontsize=15) 
+            plt.grid()
+            
+            ax = plt.gca()
+            ax.twinx()
+            plt.plot(df.end_date.values, df.close.values, 'ko-')
+            plt.xticks(xticks, rotation=-90, fontsize=15)
+            plt.yticks(fontsize=15) 
+            plt.ylabel('收盘价', fontsize=15) 
+
+            plt.title(name + ':股东数/收盘价', fontsize=25)
+            
+            pdf.savefig()
+            plt.close() 
+            
+            ############### 财报分析
+            ### 衍生数据
+            stock_financial_report_all = stock_financial_report.copy()
+
+            stock_financial_report_all['year'] = stock_financial_report_all.end_date.map(lambda x: int(x[0:4])) 
+            stock_financial_report_all['month'] = stock_financial_report_all.end_date.map(lambda x: x[4:6])            
+            
+            # 营业收入占营业总收入比
+            stock_financial_report_all['revenue_total_revenue_r'] = stock_financial_report_all.revenue/stock_financial_report_all.total_revenue*100            
+            # 营业成本占营业总成本比
+            stock_financial_report_all['oper_cost_total_cogs_r'] = stock_financial_report_all.oper_cost/stock_financial_report_all.total_cogs*100            
+            
+            # 毛利润
+            stock_financial_report_all['gross_income'] = stock_financial_report_all.revenue - \
+                                                         stock_financial_report_all.oper_cost
+            
+            # 毛利率
+            stock_financial_report_all['gross_income_r'] = stock_financial_report_all['gross_income']/stock_financial_report_all.revenue*100
+            
+            # 营业利润(营业总收入-营业总成本)
+            stock_financial_report_all['operate_income'] = stock_financial_report_all.total_revenue - \
+                                                           stock_financial_report_all.total_cogs
+            # 营业利润率(营业总收入-营业总成本)
+            stock_financial_report_all['operate_income_r'] = stock_financial_report_all['operate_income']/stock_financial_report_all.total_revenue*100
+            
+            # 营业利润率
+            stock_financial_report_all['operate_profit_r'] = stock_financial_report_all['operate_profit']/stock_financial_report_all.total_revenue*100
+            
+            # 净利率
+            stock_financial_report_all['n_income_r'] = stock_financial_report_all.n_income/stock_financial_report_all.total_revenue*100
+            
+            # 三费收入比
+            stock_financial_report_all['sell_exp_revenue_r'] = stock_financial_report_all.sell_exp/stock_financial_report_all.revenue*100            
+            stock_financial_report_all['admin_exp_revenue_r'] = stock_financial_report_all.admin_exp/stock_financial_report_all.revenue*100            
+            stock_financial_report_all['fin_exp_revenue_r'] = stock_financial_report_all.fin_exp/stock_financial_report_all.revenue*100 
+            
+            # 研发收入比
+            stock_financial_report_all['rd_exp_revenue_r'] = stock_financial_report_all.rd_exp/stock_financial_report_all.revenue*100
+            
+            # 三费毛利比
+            stock_financial_report_all['sell_exp_gross_income_r'] = stock_financial_report_all.sell_exp/stock_financial_report_all.gross_income*100            
+            stock_financial_report_all['admin_exp_gross_income_r'] = stock_financial_report_all.admin_exp/stock_financial_report_all.gross_income*100            
+            stock_financial_report_all['fin_exp_gross_income_r'] = stock_financial_report_all.fin_exp/stock_financial_report_all.gross_income*100 
+            
+            # 研发毛利比
+            stock_financial_report_all['rd_exp_gross_income_r'] = stock_financial_report_all.rd_exp/stock_financial_report_all.gross_income*100
+            
+            # 流动比率
+            stock_financial_report_all['cur_r'] = stock_financial_report_all['total_cur_assets']/stock_financial_report_all['total_cur_liab']*100            
+            
+            # 速动比率
+            stock_financial_report_all['quick_r'] = (stock_financial_report_all['total_cur_assets']-stock_financial_report_all['inventories'].fillna(0))/stock_financial_report_all['total_cur_liab']*100            
+            
+            # 现金比率
+            stock_financial_report_all['cash_r'] = (stock_financial_report_all['money_cap']+stock_financial_report_all['trad_asset'].fillna(0))/stock_financial_report_all['total_cur_liab']*100            
+            
+            # 资产负债率
+            stock_financial_report_all['liab_assets_r'] = stock_financial_report_all['total_liab']/stock_financial_report_all['total_assets']*100
+            
+            # 商誉净资产比
+            stock_financial_report_all['goodwill_net_assets_r'] = stock_financial_report_all['goodwill']/stock_financial_report_all['total_hldr_eqy_exc_min_int']*100
+            
+            # 经营现金流净额净利润比
+            stock_financial_report_all['im_net_cashflow_oper_act_n_income_r'] = stock_financial_report_all['im_net_cashflow_oper_act']/stock_financial_report_all['n_income']*100
+            
+            def calcAveR(df):
+                
+                temp1 = df[['year', 'month', 'total_hldr_eqy_exc_min_int', 'total_assets', 'inventories', 'accounts_receiv', 'adv_receipts', 'acct_payable', 'prepayment']].copy()
+                temp2 = df.loc[df['month']=='12', ['year', 'total_hldr_eqy_exc_min_int', 'total_assets', 'inventories', 'accounts_receiv', 'adv_receipts', 'acct_payable', 'prepayment']].copy()
+                temp2['year'] = temp2['year'] + 1
+                temp = temp1.merge(temp2, on='year', how='left')
+                temp['total_hldr_eqy_exc_min_int_avg'] = (temp['total_hldr_eqy_exc_min_int_x'] + temp['total_hldr_eqy_exc_min_int_y'])*0.5
+                temp['total_assets_avg'] = (temp['total_assets_x'] + temp['total_assets_y'])*0.5
+                
+                temp['inventories_avg'] = (temp['inventories_x'] + temp['inventories_y'])*0.5
+                temp['accounts_receiv_avg'] = (temp['accounts_receiv_x'] + temp['accounts_receiv_y'])*0.5
+                temp['adv_receipts_avg'] = (temp['adv_receipts_x'] + temp['adv_receipts_y'])*0.5
+                temp['acct_payable_avg'] = (temp['acct_payable_x'] + temp['acct_payable_y'])*0.5
+                temp['prepayment_avg'] = (temp['prepayment_x'] + temp['prepayment_y'])*0.5
+                
+                df0 = df.copy()
+                # 净资产收益率
+                df0['ROE'] = df0['n_income_attr_p']/temp['total_hldr_eqy_exc_min_int_avg']*100
+                # 总资产收益率
+                df0['ROA'] = df0['n_income']/temp['total_assets_avg']*100
+                
+                # 周转率
+                df0['inventories_turnover'] = df0['oper_cost']/temp['inventories_avg']
+                df0['accounts_receiv_turnover'] = df0['revenue']/temp['accounts_receiv_avg']
+                df0['adv_receipts_turnover'] = df0['revenue']/temp['adv_receipts_avg']
+                df0['acct_payable_turnover'] = df0['oper_cost']/temp['acct_payable_avg']
+                df0['prepayment_turnover'] = df0['oper_cost']/temp['prepayment_avg']
+                
+                return df0
+            
+            stock_financial_report_all = calcAveR(stock_financial_report_all)
+            
+            self.stock_financial_report_all = stock_financial_report_all
+            
+            df_03 = stock_financial_report_all[(stock_financial_report_all.month=='03') & (stock_financial_report_all.end_date>=financial_analysis_start_date)].copy()
+            df_06 = stock_financial_report_all[(stock_financial_report_all.month=='06') & (stock_financial_report_all.end_date>=financial_analysis_start_date)].copy()   
+            df_09 = stock_financial_report_all[(stock_financial_report_all.month=='09') & (stock_financial_report_all.end_date>=financial_analysis_start_date)].copy()   
+            df_12 = stock_financial_report_all[(stock_financial_report_all.month=='12') & (stock_financial_report_all.end_date>=financial_analysis_start_date)].copy()   
+            
+            df_03 = df_03.sort_values('year', ascending=False)
+            df_06 = df_06.sort_values('year', ascending=False)
+            df_09 = df_09.sort_values('year', ascending=False)
+            df_12 = df_12.sort_values('year', ascending=False)
+            
+            # 计算增长率
+            Vars = [
+                     ## 成长性分析
+                     # 利润表
+                     'total_revenue', 'revenue', 'revenue_total_revenue_r', 
+                     'total_cogs', 'oper_cost', 'oper_cost_total_cogs_r',
+                     'gross_income', 'operate_income', 'operate_profit', 'total_profit', 'income_tax', 'n_income', 'n_income_attr_p',
+                     'rd_exp',
+                     # 资产负债表
+                     'total_assets', 'money_cap', 'inventories', 'intan_assets',
+                     'total_liab', 'total_cur_liab', 'total_ncl', 'lt_borr',
+                     'total_hldr_eqy_inc_min_int', 'total_hldr_eqy_exc_min_int',
+                     'total_share', 'cap_rese', 'surplus_rese', 'undistr_porfit', 'treasury_share',
+                     # 现金流量表
+                     'im_net_cashflow_oper_act',
+                     'n_cashflow_inv_act',
+                     'n_cash_flows_fnc_act',
+                     
+                     ## 盈利能力分析
+                     # 收入角度
+                     'gross_income_r', 
+                     'sell_exp_revenue_r', 'admin_exp_revenue_r', 'fin_exp_revenue_r', 'rd_exp_revenue_r',
+                     'sell_exp_gross_income_r', 'admin_exp_gross_income_r', 'fin_exp_gross_income_r', 'rd_exp_gross_income_r',
+                     'operate_income_r', 'operate_profit_r', 'n_income_r',
+                     # 资产角度
+                     'ROE', 'ROA', 
+                     # 管理角度
+                     'inventories_turnover',
+                     'accounts_receiv_turnover', 'adv_receipts_turnover',
+                     'acct_payable_turnover', 'prepayment_turnover',
+                     
+                     ## 安全性分析
+                     'cur_r', 'quick_r', 'cash_r', 'liab_assets_r',
+                     'goodwill', 'goodwill_net_assets_r',
+                     'im_net_cashflow_oper_act_n_income_r',
+                     ]
+                    
+            def calcDR(df, columns):
+            # 增长率
+                for c in columns:
+                    df[c+'_DR'] = (df[c] - df.shift(-1)[c])/(abs(df.shift(-1)[c])+1e-8)*100
+                return df
+            
+            df_03 = calcDR(df_03, Vars)
+            df_06 = calcDR(df_06, Vars)
+            df_09 = calcDR(df_09, Vars)
+            df_12 = calcDR(df_12, Vars)
+                    
+            df_03 = df_03.reset_index(drop=True)
+            df_06 = df_06.reset_index(drop=True)
+            df_09 = df_09.reset_index(drop=True)
+            df_12 = df_12.reset_index(drop=True)
+            
+            df_03 = df_03.sort_values('year', ascending=True)
+            df_06 = df_06.sort_values('year', ascending=True)
+            df_09 = df_09.sort_values('year', ascending=True)
+            df_12 = df_12.sort_values('year', ascending=True)
+            
+            ### 绘图
+            Devided = [
+                       ## 成长性
+                       # 利润表
+                       1e8, 1e8, 1, 
+                       1e8, 1e8, 1,
+                       1e8, 1e8, 1e8, 1e8, 1e8, 1e8, 1e8,
+                       1e8,
+                       # 资产负债表
+                       1e8, 1e8, 1e8, 1e8,
+                       1e8, 1e8, 1e8, 1e8,
+                       1e8, 1e8,
+                       1e8, 1e8, 1e8, 1e8, 1e8,
+                       # 现金流量表
+                       1e8, 
+                       1e8, 
+                       1e8,
+                       
+                       ## 盈利能力
+                       # 收入角度
+                       1, 
+                       1, 1, 1, 1,
+                       1, 1, 1, 1,
+                       1, 1, 1,
+                       # 资产角度
+                       1, 1,
+                       # 管理角度
+                       1, 
+                       1, 1,
+                       1, 1,
+                       
+                       ## 安全性
+                       1, 1, 1, 1,
+                       1e8, 1,
+                       1,
+                       ]
+            
+            Titles = [
+                      ## 成长性
+                      # 利润表
+                      '成长性:利润->营业总收入', '成长性:利润->营业收入', '成长性:利润->营业收入占营业总收入比', 
+                      '成长性:利润->营业总成本', '成长性:利润->营业成本', '成长性:利润->营业成本占营业总成本比', 
+                      '成长性:利润->毛利润', '成长性:利润->营业利润(营业总收入-营业总成本)', '成长性:利润->营业利润', '成长性:利润->税前利润', '成长性:利润->所得税', '成长性:利润->净利润', '成长性:利润->归母净利润',
+                      '成长性:利润->研发费用',
+                      # 资产负债表
+                      '成长性:资产->总资产', '成长性:资产->现金', '成长性:资产->存货', '成长性:资产->无形资产',
+                      '成长性:负债->总负债', '成长性:负债->流动负债', '成长性:负债->非流动负债', '成长性:负债->长期借款',
+                      '成长性:股东权益->净资产-股东权益合计(含少数股东权益)', '成长性:资产->归母净资产-股东权益合计(不含少数股东权益)',
+                      '成长性:股东权益->股本', '成长性:股东权益->资本公积', '成长性:股东权益->盈余公积', '成长性:股东权益->未分配利润', '成长性:股东权益->库存股',
+                      # 现金流量表                      
+                      '成长性:现金流量->经营现金流净额',
+                      '成长性:现金流量->投资现金流净额',
+                      '成长性:现金流量->筹资现金流净额',
+                      
+                      ## 盈利能力
+                      # 收入角度
+                      '盈利能力:收入角度->毛利率', 
+                      '盈利能力:收入角度->销售费用率', '盈利能力:收入角度->管理费用率', '盈利能力:收入角度->财务费用率', '盈利能力:收入角度->研发费用率',
+                      '盈利能力:收入角度->销售费用毛利比', '盈利能力:收入角度->管理费用毛利比', '盈利能力:收入角度->财务费用毛利比', '盈利能力:收入角度->研发费用毛利比',
+                      '盈利能力:收入角度->营业利润率(营业总收入-营业总成本)', '盈利能力:收入角度->营业利润率', '盈利能力:收入角度->净利率',
+                      # 资产角度
+                      '盈利能力:资产角度->净资产收益率', '盈利能力:资产角度->总资产收益率',
+                      # 管理角度
+                      '盈利能力:管理角度->存货周转率',
+                      '盈利能力:管理角度->应收账款周转率', '盈利能力:管理角度->预收款项周转率',
+                      '盈利能力:管理角度->应付账款周转率', '盈利能力:管理角度->预付款项周转率',
+                      
+                      ## 安全性
+                      '安全性->流动比率', '安全性->速动比率', '安全性->现金比率', '安全性->资产负债率',
+                      '安全性->商誉', '安全性->商誉净资产比', 
+                      '安全性->经营现金流净额净利润比',
+                      ]
+            Labels = [
+                      ## 成长性
+                      # 利润表
+                      '亿元', '亿元', '%', 
+                      '亿元', '亿元', '%', 
+                      '亿元', '亿元', '亿元', '亿元', '亿元', '亿元', '亿元',
+                      '亿元',
+                      # 资产负债表
+                      '亿元', '亿元', '亿元', '亿元',
+                      '亿元', '亿元', '亿元', '亿元',
+                      '亿元', '亿元',
+                      '亿元', '亿元', '亿元', '亿元', '亿元',
+                      # 现金流量表
+                      '亿元',
+                      '亿元',
+                      '亿元',
+                      
+                      ## 盈利能力
+                      # 收入角度
+                      '%', 
+                      '%', '%', '%', '%',
+                      '%', '%', '%', '%',
+                      '%', '%', '%',
+                      # 资产角度
+                      '%', '%',     
+                      # 管理角度
+                      '周转率',   
+                      '周转率', '周转率', 
+                      '周转率', '周转率',
+                      
+                      ## 安全性
+                      '%', '%', '%', '%',
+                      '亿', '%',  
+                      '%',
+                      ]
+
+            for i, v in enumerate(Vars):
+                df1_03 = df_03[['year', v, v+'_DR']].copy()
+                df1_03.columns = ['year', v+'_03', v+'_DR'+'_03']
+                
+                df1_06 = df_06[['year', v, v+'_DR']].copy()
+                df1_06.columns = ['year', v+'_06', v+'_DR'+'_06']
+                
+                df1_09 = df_09[['year', v, v+'_DR']].copy()
+                df1_09.columns = ['year', v+'_09', v+'_DR'+'_09']
+                
+                df1_12 = df_12[['year', v, v+'_DR']].copy()
+                df1_12.columns = ['year', v+'_12', v+'_DR'+'_12']
+                
+                df1 = df1_03.merge(df1_06, on='year', how='outer')
+                df1 = df1.merge(df1_09, on='year', how='outer')
+                df1 = df1.merge(df1_12, on='year', how='outer')
+                
+                df1 = df1.sort_values('year')
+                df1 = df1.reset_index(drop=True)
+                
+                xticklabels = df1.year.tolist()
+                x = np.arange(len(xticklabels))  # 标签位置
+                width = 0.2  # 柱状图的宽度
+                
+                plt.figure(figsize=(15, 7))
+                plt.bar(x-width*2, df1[v+'_03']/Devided[i], width, label='一季报', color='peachpuff')
+                plt.bar(x-width+0.01, df1[v+'_06']/Devided[i], width, label='中报', color='sandybrown')
+                plt.bar(x+0.02, df1[v+'_09']/Devided[i], width, label='三季报', color='peru')
+                plt.bar(x+width+0.03, df1[v+'_12']/Devided[i], width, label='年报', color='chocolate')
+                plt.xticks(x)
+                ax = plt.gca()
+                ax.set_xticklabels(xticklabels, fontsize=15)
+                plt.yticks(fontsize=15)
+                plt.ylabel(Labels[i], fontsize=15)                
+                plt.legend(loc='upper left', framealpha=0.2)
+                plt.grid()
+                plt.title('%s: %s/同比增长'%(name, Titles[i]), fontsize=20)   
+                
+                axt = ax.twinx()
+                plt.plot(x-width*2, np.array(df1[v+'_DR'+'_03']), 'r^--', markersize=10, label='一季报同比增长')
+                plt.plot(x-width+0.01, np.array(df1[v+'_DR'+'_06']), 'b^--', markersize=10, label='中报同比增长')
+                plt.plot(x+0.02, np.array(df1[v+'_DR'+'_09']), 'g^--', markersize=10, label='三季报同比增长')
+                plt.plot(x+width+0.03, np.array(df1[v+'_DR'+'_12']), 'k^--', markersize=10, label='年报同比增长')
+                plt.yticks(fontsize=15)
+                plt.legend(loc='upper right', framealpha=0.2)
+                plt.ylabel('%', fontsize=15)
+                 
+                pdf.savefig()
+                plt.close()
+            
+            ############### 同行业财报对比
+            df = pd.read_csv(path+'feature_financial.csv',
+                             dtype={'list_date': object}
+                             )
+            industry_stock = stock_analysis_all['industry'].values[0]
+            name_stock = stock_analysis_all['name'].values[0]
+            df = df[df.industry==industry_stock].copy()
+            
+            Devided = [1e8, 1, 1]
+            Vars = ['n_income_attr_p', 'gross_income_r', 'ROE']
+            Titles = ['归母净利润', '毛利率', '净资产收益率']
+            Labels = ['亿元', '%', '%']
+            for i in range(len(Vars)):
+                
+                def calc(df, c):
+                    
+                    d = df.sort_values(c, ascending=False)
+                    d = d.reset_index(drop=True)
+                    
+                    d_1 = d.loc[d.index<30, :]
+                    d_2 = d[d.name==name_stock].copy()
+                    
+                    d = d_1.append(d_2)
+                    d = d.drop_duplicates('name')
+                    d = d.sort_values(c, ascending=False)
+                    d = d.reset_index(drop=True)
+                    
+                    return d
+                
+                df_03 = calc(df, Vars[i]+'_curr_03')
+                df_06 = calc(df, Vars[i]+'_curr_06')
+                df_09 = calc(df, Vars[i]+'_curr_09')
+                df_12 = calc(df, Vars[i]+'_curr_12')
+                
+                # 绘图
+                def calcColor(df, c):
+                    y = (df[c]>0).map({True:'r', False:'g'})
+                    y[df['name']==name_stock] = 'grey'
+                    return y
+                
+                NN = 30
+                plt.figure(figsize=(15, NN*0.4*2))
+                        
+                plt.subplot(221)
+                plt.barh(df_03.name, df_03[Vars[i]+'_curr_03']/Devided[i], color=calcColor(df_03, Vars[i]+'_curr_03'))           
+                plt.xticks(fontsize=10)
+                plt.xlabel(Labels[i], fontsize=10)
+                plt.yticks(fontsize=10)
+                plt.grid()
+                ax = plt.gca()
+                ax.twiny()
+                plt.scatter(df_03[Vars[i]+'_DR_curr_03'], df_03.name, color='k', marker='^', s=40)
+                plt.xticks(fontsize=10)
+                plt.xlabel('%', fontsize=10)
+                plt.title('同行业(%s)一季报:%s/同比增长'%(industry_stock, Titles[i]), y=1.09, fontsize=15)
+                
+                plt.subplot(222)
+                plt.barh(df_06.name, df_06[Vars[i]+'_curr_06']/Devided[i], color=calcColor(df_06, Vars[i]+'_curr_06'))           
+                plt.xticks(fontsize=10)
+                plt.xlabel(Labels[i], fontsize=10)
+                plt.yticks(fontsize=10)
+                plt.grid()
+                ax = plt.gca()
+                ax.twiny()
+                plt.scatter(df_06[Vars[i]+'_DR_curr_06'], df_06.name, color='k', marker='^', s=40)
+                plt.xticks(fontsize=10)
+                plt.xlabel('%', fontsize=10)
+                plt.title('同行业(%s)中报:%s/同比增长'%(industry_stock, Titles[i]), y=1.09, fontsize=15)
+                
+                plt.subplot(223)
+                plt.barh(df_09.name, df_09[Vars[i]+'_curr_09']/Devided[i], color=calcColor(df_09, Vars[i]+'_curr_09'))           
+                plt.xticks(fontsize=10)
+                plt.xlabel(Labels[i], fontsize=10)
+                plt.yticks(fontsize=10)
+                plt.grid()
+                ax = plt.gca()
+                ax.twiny()
+                plt.scatter(df_09[Vars[i]+'_DR_curr_09'], df_09.name, color='k', marker='^', s=40)
+                plt.xticks(fontsize=10)
+                plt.xlabel('%', fontsize=10)
+                plt.title('同行业(%s)三季报:%s/同比增长'%(industry_stock, Titles[i]), y=1.09, fontsize=15)
+                
+                plt.subplot(224)
+                plt.barh(df_12.name, df_12[Vars[i]+'_curr_12']/Devided[i], color=calcColor(df_12, Vars[i]+'_curr_12'))           
+                plt.xticks(fontsize=10)
+                plt.xlabel(Labels[i], fontsize=10)
+                plt.yticks(fontsize=10)
+                plt.grid()
+                ax = plt.gca()
+                ax.twiny()
+                plt.scatter(df_12[Vars[i]+'_DR_curr_12'], df_12.name, color='k', marker='^', s=40)
+                plt.xticks(fontsize=10)
+                plt.xlabel('%', fontsize=10)
+                plt.title('同行业(%s)年报:%s/同比增长'%(industry_stock, Titles[i]), y=1.09, fontsize=15)
+                
+                plt.subplots_adjust(hspace=0.25, wspace=0.25)
+                    
+                pdf.savefig()
+                plt.close() 
+       
