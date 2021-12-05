@@ -515,6 +515,10 @@ class stockAnalysize():
             # 经营现金流净额净利润比
             stock_financial_report_all['im_net_cashflow_oper_act_n_income_r'] = stock_financial_report_all['im_net_cashflow_oper_act']/stock_financial_report_all['n_income']*100
             
+            # 已占用资本收益率
+            stock_financial_report_all['capital_employed'] = stock_financial_report_all['total_assets'] - stock_financial_report_all['money_cap']
+            stock_financial_report_all['ROCE'] = stock_financial_report_all['ebit'] / stock_financial_report_all['capital_employed']*100
+            
             def calcAveR(df):
                 
                 temp1 = df[['year', 'month', 'total_hldr_eqy_exc_min_int', 'total_assets', 'inventories', 'accounts_receiv', 'adv_receipts', 'acct_payable', 'prepayment']].copy()
@@ -565,7 +569,7 @@ class stockAnalysize():
                      # 利润表
                      'total_revenue', 'revenue', 'revenue_total_revenue_r', 
                      'total_cogs', 'oper_cost', 'oper_cost_total_cogs_r',
-                     'gross_income', 'operate_income', 'operate_profit', 'total_profit', 'income_tax', 'n_income', 'n_income_attr_p',
+                     'gross_income', 'operate_income', 'operate_profit', 'ebit', 'total_profit', 'income_tax', 'n_income', 'n_income_attr_p', 
                      'rd_exp',
                      # 资产负债表
                      'total_assets', 'money_cap', 'inventories', 'intan_assets',
@@ -584,7 +588,7 @@ class stockAnalysize():
                      'sell_exp_gross_income_r', 'admin_exp_gross_income_r', 'fin_exp_gross_income_r', 'rd_exp_gross_income_r',
                      'operate_income_r', 'operate_profit_r', 'n_income_r',
                      # 资产角度
-                     'ROE', 'ROA', 
+                     'ROE', 'ROA', 'ROCE', 
                      # 管理角度
                      'inventories_turnover',
                      'accounts_receiv_turnover', 'adv_receipts_turnover',
@@ -623,7 +627,7 @@ class stockAnalysize():
                        # 利润表
                        1e8, 1e8, 1, 
                        1e8, 1e8, 1,
-                       1e8, 1e8, 1e8, 1e8, 1e8, 1e8, 1e8,
+                       1e8, 1e8, 1e8, 1e8, 1e8, 1e8, 1e8, 1e8,
                        1e8,
                        # 资产负债表
                        1e8, 1e8, 1e8, 1e8,
@@ -642,7 +646,7 @@ class stockAnalysize():
                        1, 1, 1, 1,
                        1, 1, 1,
                        # 资产角度
-                       1, 1,
+                       1, 1, 1,
                        # 管理角度
                        1, 
                        1, 1,
@@ -659,7 +663,7 @@ class stockAnalysize():
                       # 利润表
                       '成长性:利润->营业总收入', '成长性:利润->营业收入', '成长性:利润->营业收入占营业总收入比', 
                       '成长性:利润->营业总成本', '成长性:利润->营业成本', '成长性:利润->营业成本占营业总成本比', 
-                      '成长性:利润->毛利润', '成长性:利润->营业利润(营业总收入-营业总成本)', '成长性:利润->营业利润', '成长性:利润->税前利润', '成长性:利润->所得税', '成长性:利润->净利润', '成长性:利润->归母净利润',
+                      '成长性:利润->毛利润', '成长性:利润->营业利润(营业总收入-营业总成本)', '成长性:利润->营业利润', '成长性:利润->息税前利润', '成长性:利润->税前利润', '成长性:利润->所得税', '成长性:利润->净利润', '成长性:利润->归母净利润', 
                       '成长性:利润->研发费用',
                       # 资产负债表
                       '成长性:资产->总资产', '成长性:资产->现金', '成长性:资产->存货', '成长性:资产->无形资产',
@@ -678,7 +682,7 @@ class stockAnalysize():
                       '盈利能力:收入角度->销售费用毛利比', '盈利能力:收入角度->管理费用毛利比', '盈利能力:收入角度->财务费用毛利比', '盈利能力:收入角度->研发费用毛利比',
                       '盈利能力:收入角度->营业利润率(营业总收入-营业总成本)', '盈利能力:收入角度->营业利润率', '盈利能力:收入角度->净利率',
                       # 资产角度
-                      '盈利能力:资产角度->净资产收益率', '盈利能力:资产角度->总资产收益率',
+                      '盈利能力:资产角度->净资产收益率(ROE)', '盈利能力:资产角度->总资产收益率(ROA)', '盈利能力:资产角度->已占用资本收益率(ROCE)',
                       # 管理角度
                       '盈利能力:管理角度->存货周转率',
                       '盈利能力:管理角度->应收账款周转率', '盈利能力:管理角度->预收款项周转率',
@@ -694,7 +698,7 @@ class stockAnalysize():
                       # 利润表
                       '亿元', '亿元', '%', 
                       '亿元', '亿元', '%', 
-                      '亿元', '亿元', '亿元', '亿元', '亿元', '亿元', '亿元',
+                      '亿元', '亿元', '亿元', '亿元', '亿元', '亿元', '亿元', '亿元',
                       '亿元',
                       # 资产负债表
                       '亿元', '亿元', '亿元', '亿元',
@@ -713,7 +717,7 @@ class stockAnalysize():
                       '%', '%', '%', '%',
                       '%', '%', '%',
                       # 资产角度
-                      '%', '%',     
+                      '%', '%', '%',      
                       # 管理角度
                       '周转率',   
                       '周转率', '周转率', 
@@ -874,4 +878,28 @@ class stockAnalysize():
                     
                 pdf.savefig()
                 plt.close() 
-       
+        
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+             
+            
+            
+            
+            
+            
+            
+            
+
+
+
