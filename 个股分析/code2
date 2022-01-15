@@ -1,0 +1,49 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Sun Jan  9 16:06:51 2022
+
+@author: shinan
+"""
+
+import pandas as pd
+import time
+
+end_date = '20220114'
+path = 'D:\\1.Modeling material\\Invest_Study\\data\\'
+
+################################# 个股特征 ##################################### 
+## 下载
+stockData = stockDataDown(name='通策医疗', 
+                          stock_start_date='20210101', 
+                          stock_end_date=end_date,
+                          financial_start_date='20150101', 
+                          financial_end_date=end_date)
+
+stock_data = stockData.stock_data
+stock_oneday = stockData.stock_oneday
+stock_holdernumber = stockData.stock_holdernumber
+stock_financial_data = stockData.stock_financial_data
+
+## 分析
+stockAnaly = stockAnalysize(path=path,                           
+                            name=stockData.name,
+                            
+                            # 个股日行情数据
+                            stock_data=stock_data,
+                            # 当日各股票日行情数据
+                            stock_oneday=stock_oneday,
+                            # 个股股东人数
+                            stock_holdernumber=stock_holdernumber,
+                            # 个股财报数据
+                            stock_financial_data=stock_financial_data,
+                            
+                            # 个股分析时间区间
+                            analysis_start_date='20210101', 
+                            analysis_end_date=end_date,
+                            # 个股财报分析起始时间
+                            financial_analysis_start_date='20150331'
+                            )
+
+stock_oneday_industry = stockAnaly.stock_oneday_industry
+stock_data_all = stockAnaly.stock_data_all
+stock_financial_data_all = stockAnaly.stock_financial_data_all
