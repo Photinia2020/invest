@@ -13,7 +13,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 # 导入tushare库
 import tushare as ts
 # 设置token，注册后，系统分配
-ts.set_token('238d647a596415e41dfddeacb4fc5fe13b3b58075efee0e1534fcbc8')
+ts.set_token('your token')
 # 初始化pro接口
 pro = ts.pro_api()
 
@@ -31,7 +31,7 @@ class stockDataDown():
                  financial_start_date, 
                  financial_end_date):
         
-        ##### 下载股票列表
+        ############### 下载股票列表
         self.name=name
         self.stock_basic = pro.stock_basic(exchange='',
                                            list_status='L',
@@ -39,7 +39,7 @@ class stockDataDown():
                                            )
         self.code = self.stock_basic.ts_code[self.stock_basic['name'].str.find(self.name)>=0].tolist()[0]
         
-        ##### 下载当天所有个股每日指标数据
+        ############### 下载当天所有个股每日指标数据
         daily = pro.daily(trade_date=stock_end_date)
         daily_basic = pro.daily_basic(trade_date=stock_end_date)
         
@@ -53,7 +53,7 @@ class stockDataDown():
         
         self.stock_oneday = stock_oneday
         
-        ##### 下载个股数据
+        ############### 下载个股数据
         # 下载数据
         daily = pro.daily(ts_code=self.code, start_date=stock_start_date, end_date=stock_end_date)
         daily_basic = pro.daily_basic(ts_code=self.code, start_date=stock_start_date, end_date=stock_end_date)        
@@ -68,15 +68,15 @@ class stockDataDown():
         margin_detail['flag_margin'] = 1
             
         # 合并数据
-        stock_analysis = daily.merge(daily_basic.drop(['ts_code', 'close'], axis=1), on=['trade_date'], how='outer')
-        stock_analysis = stock_analysis.merge(moneyflow.drop('ts_code', axis=1), on=['trade_date'], how='outer')
-        stock_analysis = stock_analysis.merge(hk_hold[['trade_date', 'ratio', 'flag_hold']], on=['trade_date'], how='left')
-        stock_analysis = stock_analysis.merge(margin_detail.drop('ts_code', axis=1), on=['trade_date'], how='left')
-        stock_analysis = self.stock_basic[['ts_code', 'name', 'industry']].merge(stock_analysis, on='ts_code', how='right')
+        stock_data = daily.merge(daily_basic.drop(['ts_code', 'close'], axis=1), on=['trade_date'], how='outer')
+        stock_data = stock_data.merge(moneyflow.drop('ts_code', axis=1), on=['trade_date'], how='outer')
+        stock_data = stock_data.merge(hk_hold[['trade_date', 'ratio', 'flag_hold']], on=['trade_date'], how='left')
+        stock_data = stock_data.merge(margin_detail.drop('ts_code', axis=1), on=['trade_date'], how='left')
+        stock_data = self.stock_basic[['ts_code', 'name', 'industry']].merge(stock_data, on='ts_code', how='right')
         
-        self.stock_analysis = stock_analysis
+        self.stock_data = stock_data
         
-        ##### 下载股东人数数据
+        ############### 下载股东人数数据
         stock_holdernumber = pro.stk_holdernumber(ts_code=self.code, 
                                                 start_date='19900101', 
                                                 end_date=stock_end_date)
@@ -107,7 +107,7 @@ class stockDataDown():
             
         self.stock_holdernumber = stock_holdernumber  
         
-        ##### 下载财报数据
+        ############### 下载财报数据
         def dropDup(df):
             if len(df) == 1:
                 df0 = df
@@ -149,48 +149,50 @@ class stockDataDown():
                                     'report_type': 'report_type2',
                                     'comp_type': 'comp_type2'}, axis=1)
         
-        stock_financial_report = income.merge(balancesheet, on='end_date', how='outer')
-        stock_financial_report.loc[stock_financial_report.ts_code.isnull(), 'ts_code'] = stock_financial_report.loc[stock_financial_report.ts_code.isnull(), 'ts_code1']
-        stock_financial_report.loc[stock_financial_report.ann_date.isnull(), 'ann_date'] = stock_financial_report.loc[stock_financial_report.ann_date.isnull(), 'ann_date1']
-        stock_financial_report.loc[stock_financial_report.f_ann_date.isnull(), 'f_ann_date'] = stock_financial_report.loc[stock_financial_report.f_ann_date.isnull(), 'f_ann_date1']
-        stock_financial_report.loc[stock_financial_report.report_type.isnull(), 'report_type'] = stock_financial_report.loc[stock_financial_report.report_type.isnull(), 'report_type1']
-        stock_financial_report.loc[stock_financial_report.comp_type.isnull(), 'comp_type'] = stock_financial_report.loc[stock_financial_report.comp_type.isnull(), 'comp_type1']
+        stock_financial_data = income.merge(balancesheet, on='end_date', how='outer')
+        stock_financial_data.loc[stock_financial_data.ts_code.isnull(), 'ts_code'] = stock_financial_data.loc[stock_financial_data.ts_code.isnull(), 'ts_code1']
+        stock_financial_data.loc[stock_financial_data.ann_date.isnull(), 'ann_date'] = stock_financial_data.loc[stock_financial_data.ann_date.isnull(), 'ann_date1']
+        stock_financial_data.loc[stock_financial_data.f_ann_date.isnull(), 'f_ann_date'] = stock_financial_data.loc[stock_financial_data.f_ann_date.isnull(), 'f_ann_date1']
+        stock_financial_data.loc[stock_financial_data.report_type.isnull(), 'report_type'] = stock_financial_data.loc[stock_financial_data.report_type.isnull(), 'report_type1']
+        stock_financial_data.loc[stock_financial_data.comp_type.isnull(), 'comp_type'] = stock_financial_data.loc[stock_financial_data.comp_type.isnull(), 'comp_type1']
         
-        stock_financial_report = stock_financial_report.merge(cashflow, on='end_date', how='outer')
-        stock_financial_report.loc[stock_financial_report.ts_code.isnull(), 'ts_code'] = stock_financial_report.loc[stock_financial_report.ts_code.isnull(), 'ts_code2']
-        stock_financial_report.loc[stock_financial_report.ann_date.isnull(), 'ann_date'] = stock_financial_report.loc[stock_financial_report.ann_date.isnull(), 'ann_date2']
-        stock_financial_report.loc[stock_financial_report.f_ann_date.isnull(), 'f_ann_date'] = stock_financial_report.loc[stock_financial_report.f_ann_date.isnull(), 'f_ann_date2']
-        stock_financial_report.loc[stock_financial_report.report_type.isnull(), 'report_type'] = stock_financial_report.loc[stock_financial_report.report_type.isnull(), 'report_type2']
-        stock_financial_report.loc[stock_financial_report.comp_type.isnull(), 'comp_type'] = stock_financial_report.loc[stock_financial_report.comp_type.isnull(), 'comp_type2']
+        stock_financial_data = stock_financial_data.merge(cashflow, on='end_date', how='outer')
+        stock_financial_data.loc[stock_financial_data.ts_code.isnull(), 'ts_code'] = stock_financial_data.loc[stock_financial_data.ts_code.isnull(), 'ts_code2']
+        stock_financial_data.loc[stock_financial_data.ann_date.isnull(), 'ann_date'] = stock_financial_data.loc[stock_financial_data.ann_date.isnull(), 'ann_date2']
+        stock_financial_data.loc[stock_financial_data.f_ann_date.isnull(), 'f_ann_date'] = stock_financial_data.loc[stock_financial_data.f_ann_date.isnull(), 'f_ann_date2']
+        stock_financial_data.loc[stock_financial_data.report_type.isnull(), 'report_type'] = stock_financial_data.loc[stock_financial_data.report_type.isnull(), 'report_type2']
+        stock_financial_data.loc[stock_financial_data.comp_type.isnull(), 'comp_type'] = stock_financial_data.loc[stock_financial_data.comp_type.isnull(), 'comp_type2']
         
-        stock_financial_report = stock_financial_report.applymap(lambda x: np.nan if x is None else x)
+        stock_financial_data = stock_financial_data.applymap(lambda x: np.nan if x is None else x)
         
-        self.stock_financial_report = stock_financial_report
+        self.stock_financial_data = stock_financial_data
         
 class stockAnalysize():       
     def __init__(self, 
                  path, 
-                 reportdate,
                  name, 
-                 stock_analysis,
+                 
+                 stock_data,
                  stock_oneday,
                  stock_holdernumber,
-                 stock_financial_report,
+                 stock_financial_data,
+                 
                  analysis_start_date, 
                  analysis_end_date,
                  financial_analysis_start_date,
                  ):
         
+        reportdate = max(stock_data.trade_date)
         with PdfPages(path + reportdate + '-' + name + '.pdf') as pdf:
             
             ############### 个股数据衍生
-            stock_analysis_all = stock_analysis.copy()
-            stock_analysis_all['net_lead'] =  stock_analysis_all['buy_lg_amount'] - stock_analysis_all['sell_lg_amount'] + stock_analysis_all['buy_elg_amount'] - stock_analysis_all['sell_elg_amount']
-            stock_analysis_all['net_lead_amount_r'] =  stock_analysis_all['net_lead']/(stock_analysis_all['amount']/10)*100
+            stock_data_all = stock_data.copy()
+            stock_data_all['net_lead'] =  stock_data_all['buy_lg_amount'] - stock_data_all['sell_lg_amount'] + stock_data_all['buy_elg_amount'] - stock_data_all['sell_elg_amount']
+            stock_data_all['net_lead_amount_r'] =  stock_data_all['net_lead']/(stock_data_all['amount']/10)*100
             
-            stock_analysis_all['net_rzmre'] = stock_analysis_all['rzmre'] - stock_analysis_all['rzche']
-            stock_analysis_all['net_rqmcl'] = stock_analysis_all['rqmcl'] - stock_analysis_all['rqchl']
-            stock_analysis_all['rzrqye_circ_mv_r'] = 100*(stock_analysis_all['rzrqye']/1e4) / stock_analysis_all['circ_mv']
+            stock_data_all['net_rzmre'] = stock_data_all['rzmre'] - stock_data_all['rzche']
+            stock_data_all['net_rqmcl'] = stock_data_all['rqmcl'] - stock_data_all['rqchl']
+            stock_data_all['rzrqye_circ_mv_r'] = 100*(stock_data_all['rzrqye']/1e4) / stock_data_all['circ_mv']
             
             # 增长值函数
             def calcD(df, columns):
@@ -198,23 +200,23 @@ class stockAnalysize():
                     df[c+'_D'] = df[c] - df.shift(-1)[c]
                 return df
             
-            temp = stock_analysis_all[stock_analysis_all.flag_hold==1].copy()
+            temp = stock_data_all[stock_data_all.flag_hold==1].copy()
             temp = temp.sort_values(['trade_date'], ascending=[False])
             temp = calcD(temp, ['ratio'])
             temp['net_north'] = temp['ratio_D']/1e2*temp['circ_mv']
             
-            stock_analysis_all = stock_analysis_all.merge(temp[['trade_date', 'ratio_D', 'net_north']], on=['trade_date'], how='left')
-            self.stock_analysis_all = stock_analysis_all
+            stock_data_all = stock_data_all.merge(temp[['trade_date', 'ratio_D', 'net_north']], on=['trade_date'], how='left')
+            self.stock_data_all = stock_data_all
             
             ############### 同行业比较 
             ## 提取同行业数据
-            industry_stock = stock_analysis_all['industry'].values[0]
-            name_stock = stock_analysis_all['name'].values[0]
+            industry_stock = stock_data_all['industry'].values[0]
+            name_stock = stock_data_all['name'].values[0]
             stock_oneday_industry = stock_oneday[stock_oneday.industry==industry_stock]
             self.stock_oneday_industry = stock_oneday_industry
             
             ## 市盈率比较
-            pe_ttm_stock = stock_analysis_all.loc[stock_analysis_all.trade_date==analysis_end_date, 'pe_ttm'].values[0]
+            pe_ttm_stock = stock_data_all.loc[stock_data_all.trade_date==analysis_end_date, 'pe_ttm'].values[0]
             if pe_ttm_stock is None:
                 pe_ttm_stock = np.nan
             pe_ttm_industry = stock_oneday_industry['pe_ttm']
@@ -249,7 +251,7 @@ class stockAnalysize():
             
             df1 = df.loc[df.index<30, :]
             
-            code = stock_analysis_all['ts_code'].values[0]
+            code = stock_data_all['ts_code'].values[0]
             df2 = df.loc[df.ts_code==code, :]
             
             df = df1.append(df2)
@@ -281,7 +283,7 @@ class stockAnalysize():
             plt.close() 
             
             ############### 区间趋势/收盘价分析
-            df = stock_analysis_all[(stock_analysis_all.trade_date>=analysis_start_date) & (stock_analysis_all.trade_date<=analysis_end_date)]
+            df = stock_data_all[(stock_data_all.trade_date>=analysis_start_date) & (stock_data_all.trade_date<=analysis_end_date)]
             df = df.sort_values('trade_date')
             df = df.reset_index(drop=True)
             
@@ -389,7 +391,7 @@ class stockAnalysize():
             Labels = ['亿元', '亿元', '亿元', '万股']
             Titles = ['主力净流入额', '北向资金净流入额', '融资净买入额', '融券净卖出量']
             
-            df0 = stock_analysis_all[(stock_analysis_all.trade_date>=analysis_start_date) & (stock_analysis_all.trade_date<=analysis_end_date)]
+            df0 = stock_data_all[(stock_data_all.trade_date>=analysis_start_date) & (stock_data_all.trade_date<=analysis_end_date)]
             df0 = df0.sort_values('trade_date', ascending=False)
             
             for i, var in enumerate(Vars):
@@ -452,72 +454,72 @@ class stockAnalysize():
             
             ############### 财报分析
             ### 衍生数据
-            stock_financial_report_all = stock_financial_report.copy()
+            stock_financial_data_all = stock_financial_data.copy()
 
-            stock_financial_report_all['year'] = stock_financial_report_all.end_date.map(lambda x: int(x[0:4])) 
-            stock_financial_report_all['month'] = stock_financial_report_all.end_date.map(lambda x: x[4:6])            
+            stock_financial_data_all['year'] = stock_financial_data_all.end_date.map(lambda x: int(x[0:4])) 
+            stock_financial_data_all['month'] = stock_financial_data_all.end_date.map(lambda x: x[4:6])            
             
             # 营业收入占营业总收入比
-            stock_financial_report_all['revenue_total_revenue_r'] = stock_financial_report_all.revenue/stock_financial_report_all.total_revenue*100            
+            stock_financial_data_all['revenue_total_revenue_r'] = stock_financial_data_all.revenue/stock_financial_data_all.total_revenue*100            
             # 营业成本占营业总成本比
-            stock_financial_report_all['oper_cost_total_cogs_r'] = stock_financial_report_all.oper_cost/stock_financial_report_all.total_cogs*100            
+            stock_financial_data_all['oper_cost_total_cogs_r'] = stock_financial_data_all.oper_cost/stock_financial_data_all.total_cogs*100            
             
             # 毛利润
-            stock_financial_report_all['gross_income'] = stock_financial_report_all.revenue - \
-                                                         stock_financial_report_all.oper_cost
+            stock_financial_data_all['gross_income'] = stock_financial_data_all.revenue - \
+                                                         stock_financial_data_all.oper_cost
             
             # 毛利率
-            stock_financial_report_all['gross_income_r'] = stock_financial_report_all['gross_income']/stock_financial_report_all.revenue*100
+            stock_financial_data_all['gross_income_r'] = stock_financial_data_all['gross_income']/stock_financial_data_all.revenue*100
             
             # 营业利润(营业总收入-营业总成本)
-            stock_financial_report_all['operate_income'] = stock_financial_report_all.total_revenue - \
-                                                           stock_financial_report_all.total_cogs
+            stock_financial_data_all['operate_income'] = stock_financial_data_all.total_revenue - \
+                                                           stock_financial_data_all.total_cogs
             # 营业利润率(营业总收入-营业总成本)
-            stock_financial_report_all['operate_income_r'] = stock_financial_report_all['operate_income']/stock_financial_report_all.total_revenue*100
+            stock_financial_data_all['operate_income_r'] = stock_financial_data_all['operate_income']/stock_financial_data_all.total_revenue*100
             
             # 营业利润率
-            stock_financial_report_all['operate_profit_r'] = stock_financial_report_all['operate_profit']/stock_financial_report_all.total_revenue*100
+            stock_financial_data_all['operate_profit_r'] = stock_financial_data_all['operate_profit']/stock_financial_data_all.total_revenue*100
             
             # 净利率
-            stock_financial_report_all['n_income_r'] = stock_financial_report_all.n_income/stock_financial_report_all.total_revenue*100
+            stock_financial_data_all['n_income_r'] = stock_financial_data_all.n_income/stock_financial_data_all.total_revenue*100
             
             # 三费收入比
-            stock_financial_report_all['sell_exp_revenue_r'] = stock_financial_report_all.sell_exp/stock_financial_report_all.revenue*100            
-            stock_financial_report_all['admin_exp_revenue_r'] = stock_financial_report_all.admin_exp/stock_financial_report_all.revenue*100            
-            stock_financial_report_all['fin_exp_revenue_r'] = stock_financial_report_all.fin_exp/stock_financial_report_all.revenue*100 
+            stock_financial_data_all['sell_exp_revenue_r'] = stock_financial_data_all.sell_exp/stock_financial_data_all.revenue*100            
+            stock_financial_data_all['admin_exp_revenue_r'] = stock_financial_data_all.admin_exp/stock_financial_data_all.revenue*100            
+            stock_financial_data_all['fin_exp_revenue_r'] = stock_financial_data_all.fin_exp/stock_financial_data_all.revenue*100 
             
             # 研发收入比
-            stock_financial_report_all['rd_exp_revenue_r'] = stock_financial_report_all.rd_exp/stock_financial_report_all.revenue*100
+            stock_financial_data_all['rd_exp_revenue_r'] = stock_financial_data_all.rd_exp/stock_financial_data_all.revenue*100
             
             # 三费毛利比
-            stock_financial_report_all['sell_exp_gross_income_r'] = stock_financial_report_all.sell_exp/stock_financial_report_all.gross_income*100            
-            stock_financial_report_all['admin_exp_gross_income_r'] = stock_financial_report_all.admin_exp/stock_financial_report_all.gross_income*100            
-            stock_financial_report_all['fin_exp_gross_income_r'] = stock_financial_report_all.fin_exp/stock_financial_report_all.gross_income*100 
+            stock_financial_data_all['sell_exp_gross_income_r'] = stock_financial_data_all.sell_exp/stock_financial_data_all.gross_income*100            
+            stock_financial_data_all['admin_exp_gross_income_r'] = stock_financial_data_all.admin_exp/stock_financial_data_all.gross_income*100            
+            stock_financial_data_all['fin_exp_gross_income_r'] = stock_financial_data_all.fin_exp/stock_financial_data_all.gross_income*100 
             
             # 研发毛利比
-            stock_financial_report_all['rd_exp_gross_income_r'] = stock_financial_report_all.rd_exp/stock_financial_report_all.gross_income*100
+            stock_financial_data_all['rd_exp_gross_income_r'] = stock_financial_data_all.rd_exp/stock_financial_data_all.gross_income*100
             
             # 流动比率
-            stock_financial_report_all['cur_r'] = stock_financial_report_all['total_cur_assets']/stock_financial_report_all['total_cur_liab']*100            
+            stock_financial_data_all['cur_r'] = stock_financial_data_all['total_cur_assets']/stock_financial_data_all['total_cur_liab']*100            
             
             # 速动比率
-            stock_financial_report_all['quick_r'] = (stock_financial_report_all['total_cur_assets']-stock_financial_report_all['inventories'].fillna(0))/stock_financial_report_all['total_cur_liab']*100            
+            stock_financial_data_all['quick_r'] = (stock_financial_data_all['total_cur_assets']-stock_financial_data_all['inventories'].fillna(0))/stock_financial_data_all['total_cur_liab']*100            
             
             # 现金比率
-            stock_financial_report_all['cash_r'] = (stock_financial_report_all['money_cap']+stock_financial_report_all['trad_asset'].fillna(0))/stock_financial_report_all['total_cur_liab']*100            
+            stock_financial_data_all['cash_r'] = (stock_financial_data_all['money_cap']+stock_financial_data_all['trad_asset'].fillna(0))/stock_financial_data_all['total_cur_liab']*100            
             
             # 资产负债率
-            stock_financial_report_all['liab_assets_r'] = stock_financial_report_all['total_liab']/stock_financial_report_all['total_assets']*100
+            stock_financial_data_all['liab_assets_r'] = stock_financial_data_all['total_liab']/stock_financial_data_all['total_assets']*100
             
             # 商誉净资产比
-            stock_financial_report_all['goodwill_net_assets_r'] = stock_financial_report_all['goodwill']/stock_financial_report_all['total_hldr_eqy_exc_min_int']*100
+            stock_financial_data_all['goodwill_net_assets_r'] = stock_financial_data_all['goodwill']/stock_financial_data_all['total_hldr_eqy_exc_min_int']*100
             
             # 经营现金流净额净利润比
-            stock_financial_report_all['im_net_cashflow_oper_act_n_income_r'] = stock_financial_report_all['im_net_cashflow_oper_act']/stock_financial_report_all['n_income']*100
+            stock_financial_data_all['im_net_cashflow_oper_act_n_income_r'] = stock_financial_data_all['im_net_cashflow_oper_act']/stock_financial_data_all['n_income']*100
             
             # 已占用资本收益率
-            stock_financial_report_all['capital_employed'] = stock_financial_report_all['total_assets'] - stock_financial_report_all['money_cap']
-            stock_financial_report_all['ROCE'] = stock_financial_report_all['ebit'] / stock_financial_report_all['capital_employed']*100
+            stock_financial_data_all['capital_employed'] = stock_financial_data_all['total_assets'] - stock_financial_data_all['money_cap']
+            stock_financial_data_all['ROCE'] = stock_financial_data_all['ebit'] / stock_financial_data_all['capital_employed']*100
             
             def calcAveR(df):
                 
@@ -549,14 +551,14 @@ class stockAnalysize():
                 
                 return df0
             
-            stock_financial_report_all = calcAveR(stock_financial_report_all)
+            stock_financial_data_all = calcAveR(stock_financial_data_all)
             
-            self.stock_financial_report_all = stock_financial_report_all
+            self.stock_financial_data_all = stock_financial_data_all
             
-            df_03 = stock_financial_report_all[(stock_financial_report_all.month=='03') & (stock_financial_report_all.end_date>=financial_analysis_start_date)].copy()
-            df_06 = stock_financial_report_all[(stock_financial_report_all.month=='06') & (stock_financial_report_all.end_date>=financial_analysis_start_date)].copy()   
-            df_09 = stock_financial_report_all[(stock_financial_report_all.month=='09') & (stock_financial_report_all.end_date>=financial_analysis_start_date)].copy()   
-            df_12 = stock_financial_report_all[(stock_financial_report_all.month=='12') & (stock_financial_report_all.end_date>=financial_analysis_start_date)].copy()   
+            df_03 = stock_financial_data_all[(stock_financial_data_all.month=='03') & (stock_financial_data_all.end_date>=financial_analysis_start_date)].copy()
+            df_06 = stock_financial_data_all[(stock_financial_data_all.month=='06') & (stock_financial_data_all.end_date>=financial_analysis_start_date)].copy()   
+            df_09 = stock_financial_data_all[(stock_financial_data_all.month=='09') & (stock_financial_data_all.end_date>=financial_analysis_start_date)].copy()   
+            df_12 = stock_financial_data_all[(stock_financial_data_all.month=='12') & (stock_financial_data_all.end_date>=financial_analysis_start_date)].copy()   
             
             df_03 = df_03.sort_values('year', ascending=False)
             df_06 = df_06.sort_values('year', ascending=False)
@@ -783,8 +785,8 @@ class stockAnalysize():
             df = pd.read_csv(path+'feature_financial.csv',
                              dtype={'list_date': object}
                              )
-            industry_stock = stock_analysis_all['industry'].values[0]
-            name_stock = stock_analysis_all['name'].values[0]
+            industry_stock = stock_data_all['industry'].values[0]
+            name_stock = stock_data_all['name'].values[0]
             df = df[df.industry==industry_stock].copy()
             
             Devided = [1e8, 1, 1]
@@ -879,27 +881,4 @@ class stockAnalysize():
                 pdf.savefig()
                 plt.close() 
         
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-             
-            
-            
-            
-            
-            
-            
-            
-
-
-
+     
